@@ -1,0 +1,12 @@
+# Register at pvoutput.org to get your SYSTEMID and APIKEY
+SYSTEMID=<pvoutput systemID>
+APIKEY=<pvoutput apikey>
+
+# InfluxDB v2
+INFLUX_BUCKET=<your bucket name>
+INFLUX_ORG=<your organization>
+INFLUX_TOKEN=<AVERYsecretAcCeSsToKenGeneratedByInfluxdb>
+INFLUX_URL=<http://localhost:8086>
+
+# Set your timezone string so pytz can grab your localtime inside docker
+TIME_ZONE='America/Sao_Paulo'
