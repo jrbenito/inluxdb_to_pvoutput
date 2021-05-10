@@ -1,7 +1,8 @@
 import sys
 import requests
+import influxdb_client
 from time import sleep, time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pytz import timezone
 from configobj import ConfigObj
 
@@ -16,6 +17,9 @@ INFLUX_TOKEN = config['INFLUX_TOKEN']
 INFLUX_URL = config['INFLUX_URL']
 
 LOCAL_TZ = timezone(config['TIME_ZONE'])
+UTC_TZ = timezone('UTC')
+
+WH_IN_KWH = 1000
 
 class PVOutputAPI(object):
 
@@ -113,40 +117,79 @@ class PVOutputAPI(object):
             payload['m1'] = str(comments)[:30]
         # calculate efficiency
         if ((power_vdc is not None) and (power_vdc > 0) and (power_gen is not None)):
-            payload['v12'] = float(power_gen) / float(power_vdc)
+            payload['v12'] = (float(power_gen) / float(power_vdc)) * 100
 
         # Send status
         self.add_status(payload, system_id)
-
 
 # Local time with timezone
 def localnow():
     return datetime.now(LOCAL_TZ)
 
+# Query influxdb for data
+def get_data():
+
+    endTime = localnow().replace(second=0, microsecond=0).astimezone(UTC_TZ)
+    startTime = endTime - timedelta(seconds=300) # 5m before
+    
+
+    p = {
+        "_start" : startTime,
+        "_end" : endTime,
+        "_every": timedelta(minutes=5)
+    }
+
+    query = '''m_pwr_vdc = from(bucket: "power_plant")\
+    |> range(start: _start, stop: _end)\
+    |> filter(fn: (r) => r["name"] == "Inverter" and r["_measurement"] == "modbus" and r["type"] == "input_register") \
+    |> filter(fn: (r) => r["_field"] == "power_output" or r["_field"] == "power_input" or r["_field"] == "Vdc1" or r["_field"] == "Vac" or r["_field"] == "temperature") \
+    |> aggregateWindow(every: _every, fn: mean, createEmpty: false) \
+    |> pivot(columnKey:["_field"], rowKey:["_time"], valueColumn:"_value") \
+    etoday = from(bucket: "power_plant") \
+    |> range(start: _start, stop: _end)\
+    |> filter(fn: (r) => r["name"] == "Inverter" and r["_measurement"] == "modbus" and r["type"] == "input_register") \
+    |> filter(fn: (r) => r["_field"] == "energy_today" or r["_field"] == "energy_total") \
+    |> aggregateWindow(every: _every, fn: max, createEmpty: false) \
+    |> pivot(columnKey:["_field"], rowKey:["_time"], valueColumn:"_value") \
+    join(tables: {etoday: etoday, pwr_vdc: m_pwr_vdc}, on: ["_time", "name", "_measurement", "type", "_start",  "_stop"]) \
+    |> sort(columns: ["_time"]) \
+    '''
+
+    result = influx.query_api().query_stream(query=query, params=p)
+
+    return result
+
+
 # Aplication loop
 def main_loop():
-    # init
-    pvo = PVOutputAPI(APIKEY, SYSTEMID)
+    
 
     # Loop until end of universe
     while True:
         
-        if True:
-            # pvo.send_status(date=inv.date, energy_gen=inv.wh_today,
-            #                 power_gen=inv.ac_power, vdc=inv.pv_volts,
-            #                 vac=inv.ac_volts, temp=temp,
-            #                 temp_inv=inv.temp, energy_life=inv.wh_total,
-            #                 power_vdc=inv.pv_power)
+        records = get_data()
+        for record in records:
+            pvo.send_status(date=record["_time"].astimezone(LOCAL_TZ), energy_gen=record["energy_today"]*WH_IN_KWH,
+                            power_gen=record["power_output"], vdc=record["Vdc1"],
+                            vac=record["Vac"], temp_inv=record["temperature"],
+                            energy_life=record["energy_total"]*WH_IN_KWH, power_vdc=record["power_input"])
             # sleep until next multiple of 5 minutes
-            min = 5 - localnow().minute % 5
-            sleep(min*60 - localnow().second)
-        else:
-            # some error
-            sleep(60)  # 1 minute before try again
+        min = 5 - localnow().minute % 5
+        sleep(min*60 - localnow().second)
         
 # Main entrypoint
 if __name__ == '__main__':
     try:
+        # init
+        pvo = PVOutputAPI(APIKEY, SYSTEMID)
+        influx = influxdb_client.InfluxDBClient(
+            url=INFLUX_URL,
+            token=INFLUX_TOKEN,
+            org=INFLUX_ORG
+        )
+
+        # execute
+        print('Starting: ', localnow())
         main_loop()
     except KeyboardInterrupt:
         print('\nExiting by user request.\n', file=sys.stderr)

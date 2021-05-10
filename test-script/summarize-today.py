@@ -16,7 +16,6 @@ client = influxdb_client.InfluxDBClient(
     org=org
 )
 
-query_api = client.query_api()
 
 localTz = timezone('america/Sao_Paulo')
 utcTz = timezone('UTC')
@@ -25,7 +24,7 @@ utcTz = timezone('UTC')
 localNow = datetime.now(localTz)
 
 startTime = localNow.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(utcTz)
-endTime = localNow.replace(hour=23, minute=59, second=59, microsecond=9999).astimezone(utcTz)
+endTime = localNow.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(utcTz)
 
 p = {
     "_start" : startTime,
@@ -59,6 +58,6 @@ for table in result:
               str(record["energy_today"]) + ',' +
               str(record["Vac"]) + ',' +
               str(record["Vdc1"]) + ',' +
-              str(record["energy_total"]) + ',' +
+              str(record["energy_total"]*1000) + ',' +
               str(record["temperature"])
               )
