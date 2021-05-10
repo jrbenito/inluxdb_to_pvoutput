@@ -7,7 +7,7 @@ from pytz import timezone
 from configobj import ConfigObj
 
 # read settings from config file                                                                                                                               
-config = ConfigObj("pvoutput.conf")
+config = ConfigObj("conf/pvoutput.conf")
 SYSTEMID = config['SYSTEMID']
 APIKEY = config['APIKEY']
 

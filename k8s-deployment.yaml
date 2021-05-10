@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: influx2pvoutput
+spec:
+  selector:
+    matchLabels:
+      app: influx2pvoutput
+  template:
+    metadata:
+      labels:
+        app: influx2pvoutput
+    spec:
+      containers:
+      - image: jrbenito/influx2pvoutput
+        name: influx2pvoutput
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: pvoutput-conf
+          mountPath: /app/conf
+      volumes:
+      - name: pvoutput-conf
+        configMap:
+          name: pvoutput-conf
