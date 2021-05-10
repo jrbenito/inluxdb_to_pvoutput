@@ -1,9 +1,20 @@
-FROM python:3.8-alpine
-LABEL maintainer="Josenivaldo Benito Jr. <jrbenito@benito.qsl.br>"
+FROM python:3.9-alpine as base
 
-WORKDIR /usr/src/app
+# Install requirements
+FROM base as builder
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN mkdir /install
+WORKDIR /install
+
+COPY requirements.txt /requirements.txt
+RUN pip install --prefix=/install -r /requirements.txt
+
+# Prepare app
+FROM base
+
+COPY --from=builder /install /usr/local
+COPY src/*.py /app/
+
+WORKDIR /app
 
 CMD [ "python", "./influx2pvoutput.py" ]
