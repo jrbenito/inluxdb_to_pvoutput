@@ -11,10 +11,17 @@ spec:
       labels:
         app: influx2pvoutput
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
       - image: jrbenito/influx2pvoutput
         name: influx2pvoutput
         imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
         volumeMounts:
         - name: pvoutput-conf
           mountPath: /app/conf
