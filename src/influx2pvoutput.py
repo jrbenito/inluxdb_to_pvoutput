@@ -5,6 +5,7 @@ from time import sleep, time
 from datetime import datetime, timedelta
 from pytz import timezone
 from configobj import ConfigObj
+from collections import defaultdict
 
 # read settings from config file                                                                                                                               
 config = ConfigObj("conf/pvoutput.conf")
@@ -63,13 +64,13 @@ class PVOutputAPI(object):
                     r.raise_for_status()
                     break
             except requests.exceptions.HTTPError as errh:
-                print(localnow().strftime('%Y-%m-%d %H:%M'), " Http Error:", errh)
+                print(localnow().strftime('%Y-%m-%d %H:%M'), " Http Error:", errh, " with content:", r.content)
             except requests.exceptions.ConnectionError as errc:
-                print(localnow().strftime('%Y-%m-%d %H:%M'), "Error Connecting:", errc)
+                print(localnow().strftime('%Y-%m-%d %H:%M'), "Error Connecting:", errc, " with content:", r.content)
             except requests.exceptions.Timeout as errt:
-                print(localnow().strftime('%Y-%m-%d %H:%M'), "Timeout Error:", errt)
+                print(localnow().strftime('%Y-%m-%d %H:%M'), "Timeout Error:", errt, " with content:", r.content)
             except requests.exceptions.RequestException as err:
-                print(localnow().strftime('%Y-%m-%d %H:%M'), "OOps: Something Else", err)
+                print(localnow().strftime('%Y-%m-%d %H:%M'), "OOps: Something Else", err, " with content:", r.content)
 
             sleep(5)
         else:
@@ -141,17 +142,19 @@ def get_data():
 
     query = '''m_pwr_vdc = from(bucket: "power_plant")\
     |> range(start: _start, stop: _end)\
-    |> filter(fn: (r) => r["name"] == "Inverter" and r["_measurement"] == "modbus" and r["type"] == "input_register") \
-    |> filter(fn: (r) => r["_field"] == "power_output" or r["_field"] == "power_input" or r["_field"] == "Vdc1" or r["_field"] == "Vac" or r["_field"] == "temperature") \
+    |> filter(fn: (r) => r["_measurement"] == "modbus" and r["type"] == "input_register") \
+    |> filter(fn: (r) => r["_field"] == "power_output" or r["_field"] == "power_input" or r["_field"] == "Vdc1" or r["_field"] == "Vac" or r["_field"] == "temperature" or r["_field"] == "system_power_total") \
+    |> drop(columns: ["name", "type"])
     |> aggregateWindow(every: _every, fn: mean, createEmpty: false) \
     |> pivot(columnKey:["_field"], rowKey:["_time"], valueColumn:"_value") \
     etoday = from(bucket: "power_plant") \
     |> range(start: _start, stop: _end)\
-    |> filter(fn: (r) => r["name"] == "Inverter" and r["_measurement"] == "modbus" and r["type"] == "input_register") \
-    |> filter(fn: (r) => r["_field"] == "energy_today" or r["_field"] == "energy_total") \
+    |> filter(fn: (r) => r["_measurement"] == "modbus" and r["type"] == "input_register") \
+    |> filter(fn: (r) => r["_field"] == "energy_today" or r["_field"] == "energy_total" or r["_field"] == "Wh_export_since_reset") \
+    |> drop(columns: ["name", "type"])
     |> aggregateWindow(every: _every, fn: max, createEmpty: false) \
     |> pivot(columnKey:["_field"], rowKey:["_time"], valueColumn:"_value") \
-    join(tables: {etoday: etoday, pwr_vdc: m_pwr_vdc}, on: ["_time", "name", "_measurement", "type", "_start",  "_stop"]) \
+    join(tables: {etoday: etoday, pwr_vdc: m_pwr_vdc}, on: ["_time", "_start",  "_stop"]) \
     |> sort(columns: ["_time"]) \
     '''
 
@@ -166,14 +169,24 @@ def main_loop():
 
     # Loop until end of universe
     while True:
-        
         records = get_data()
-        for record in records:
-            pvo.send_status(date=record["_time"].astimezone(LOCAL_TZ), energy_gen=record["energy_today"]*WH_IN_KWH,
+        for rec in records:
+            record = defaultdict(lambda: None, rec.values)
+            record["energy_today"] = record["energy_today"] * WH_IN_KWH if record["energy_today"] is not None else None
+            # calculate consumption
+            pwout = record["power_output"] if record["power_output"] is not None else 0
+            pwnet = record["system_power_total"] if record["system_power_total"] is not None else 0
+            consumption = pwout + pwnet
+            if consumption > 0:
+                record['consumption'] = consumption
+
+            print(record)
+            pvo.send_status(date=record["_time"].astimezone(LOCAL_TZ), energy_gen=record["energy_today"],
                             power_gen=record["power_output"], vdc=record["Vdc1"],
                             vac=record["Vac"], temp_inv=record["temperature"],
-                            energy_life=record["energy_total"]*WH_IN_KWH, power_vdc=record["power_input"])
+                            energy_life=record["energy_total"], power_vdc=record["power_input"], power_imp=record["consumption"])
             # sleep until next multiple of 5 minutes
+
         min = 5 - localnow().minute % 5
         sleep(min*60 - localnow().second)
         
