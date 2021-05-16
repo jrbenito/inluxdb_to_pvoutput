@@ -22,7 +22,7 @@ spec:
         imagePullPolicy: IfNotPresent
         env:
         - name: PYTHONUNBUFFERED
-          value: "0"
+          value: '1'
         securityContext:
           allowPrivilegeEscalation: false
         volumeMounts:
