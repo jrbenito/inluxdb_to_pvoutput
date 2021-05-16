@@ -20,6 +20,9 @@ spec:
       - image: jrbenito/influx2pvoutput
         name: influx2pvoutput
         imagePullPolicy: IfNotPresent
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "0"
         securityContext:
           allowPrivilegeEscalation: false
         volumeMounts:
