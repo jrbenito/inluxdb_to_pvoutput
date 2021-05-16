@@ -78,7 +78,7 @@ class PVOutputAPI(object):
                   "Failed to call PVOutput API after {} attempts.".format(i))
 
     def send_status(self, date, energy_gen=None, power_gen=None, energy_imp=None,
-                    power_imp=None, temp=None, vdc=None, cumulative=False, vac=None,
+                    power_imp=None, temp=None, vdc=None, cumulative=False, net=None, vac=None,
                     temp_inv=None, energy_life=None, comments=None, power_vdc=None,
                     system_id=None):
         # format status payload
@@ -108,6 +108,8 @@ class PVOutputAPI(object):
             payload['c1'] = 1
         else:
             payload['c1'] = 0
+        if net is not None:
+            payload['n'] = net
         if vac is not None:
             payload['v8'] = float(vac)
         if temp_inv is not None:
@@ -172,19 +174,20 @@ def main_loop():
         records = get_data()
         for rec in records:
             record = defaultdict(lambda: None, rec.values)
-            record["energy_today"] = record["energy_today"] * WH_IN_KWH if record["energy_today"] is not None else None
+            record["energy_today"] = record["energy_total"] * WH_IN_KWH if record["energy_total"] is not None else None
             # calculate consumption
-            pwout = record["power_output"] if record["power_output"] is not None else 0
+            genpwr = record["power_output"] if record["power_output"] is not None else 0
             pwnet = record["system_power_total"] if record["system_power_total"] is not None else 0
-            consumption = pwout + pwnet
-            if consumption > 0:
-                record['consumption'] = consumption
+            # consumption = genpwr + pwnet
+            # if consumption > 0:
+            #     record['consumption'] = consumption
 
-            print(record)
-            pvo.send_status(date=record["_time"].astimezone(LOCAL_TZ), energy_gen=record["energy_today"],
+            pvo.send_status(date=record["_time"].astimezone(LOCAL_TZ), 
+                            energy_gen=record["energy_today"], cumulative=True,
                             power_gen=record["power_output"], vdc=record["Vdc1"],
                             vac=record["Vac"], temp_inv=record["temperature"],
-                            energy_life=record["energy_total"], power_vdc=record["power_input"], power_imp=record["consumption"])
+                            energy_life=record["energy_total"], power_vdc=record["power_input"])
+            pvo.send_status(date=record["_time"].astimezone(LOCAL_TZ), net=1, power_imp=pwnet)
             # sleep until next multiple of 5 minutes
 
         min = 5 - localnow().minute % 5
